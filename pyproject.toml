@@ -1,0 +1,25 @@
+[project]
+name = "k8s-experts"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Nir Adler",email = "me@niradler.com"}
+]
+readme = "README.md"
+requires-python = "=3.12.7"
+dependencies = [
+    "crewai (>=0.102.0,<0.103.0)",
+    "pydantic (>=2.10.6,<3.0.0)",
+    "requests (>=2.32.3,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.5"
+

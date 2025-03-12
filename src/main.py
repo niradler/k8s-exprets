@@ -1,14 +1,21 @@
-from crewai import Agent, Task, Crew, Process, agent, task, crew
+from crewai import Agent, Crew, Process, Task, LLM
+from crewai.project import CrewBase, agent, crew, task
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 from typing import Type
 import subprocess
 import yaml
 from pathlib import Path
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 class KubectlToolInput(BaseModel):
     """Input schema for KubectlTool."""
-    command: str = Field(..., description="The kubectl command to execute (e.g., 'apply -f file.yaml').")
+    command: str = Field(
+        ..., description="The kubectl command to execute (e.g., 'apply -f file.yaml').")
+
 
 class KubectlTool(BaseTool):
     name: str = "Kubectl Tool"
@@ -17,14 +24,18 @@ class KubectlTool(BaseTool):
 
     def _run(self, command: str) -> str:
         try:
-            result = subprocess.run(f"kubectl {command}", shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run(
+                f"kubectl {command}", shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             return result.stdout.decode('utf-8')
         except subprocess.CalledProcessError as e:
             return f"Error: {e.stderr.decode('utf-8')}"
 
+
 class YAMLValidatorToolInput(BaseModel):
     """Input schema for YAMLValidatorTool."""
-    file_path: str = Field(..., description="The path to the YAML file to validate.")
+    file_path: str = Field(...,
+                           description="The path to the YAML file to validate.")
+
 
 class YAMLValidatorTool(BaseTool):
     name: str = "YAML Validator Tool"
@@ -39,14 +50,11 @@ class YAMLValidatorTool(BaseTool):
         except yaml.YAMLError as e:
             return f"Invalid YAML: {e}"
 
-# --- Define Agents ---
+
+@CrewBase
 class KubernetesCrew:
     def __init__(self):
-        # Configure LLM for local Ollama model
-        self.llm_config = {
-            "model": "ollama/llama3.2",
-            "base_url": "http://localhost:11434"
-        }
+        self.common_model = os.getenv("OPENAI_MODEL_NAME")  # ollama/llama3.2:3b
 
     @agent
     def classifier_agent(self) -> Agent:
@@ -54,7 +62,8 @@ class KubernetesCrew:
             role="Kubernetes Classifier",
             goal="Analyze user input and determine which Kubernetes agents should handle the request.",
             backstory="You classify Kubernetes-related requests and return a structured JSON list of relevant agents.",
-            llm=self.llm_config,
+            llm=LLM(model=self.common_model,
+                    base_url="http://localhost:11434"),
             verbose=True,
             allow_delegation=False
         )
@@ -65,9 +74,10 @@ class KubernetesCrew:
             role="Kubernetes Administrator",
             goal="Manage Kubernetes cluster operations, including installation, upgrades, and maintenance.",
             backstory="You handle cluster administration tasks like node scaling, cluster setup, and maintenance.",
-            llm=self.llm_config,
+            llm=LLM(model=self.common_model,
+                    base_url="http://localhost:11434"),
             verbose=True,
-            tools=[KubectlTool()]
+            # tools=[KubectlTool()]
         )
 
     @agent
@@ -76,9 +86,10 @@ class KubernetesCrew:
             role="Kubernetes Operations Expert",
             goal="Debug, monitor, and optimize Kubernetes operations.",
             backstory="You provide expert-level debugging and operational support for Kubernetes workloads.",
-            llm=self.llm_config,
+            llm=LLM(model=self.common_model,
+                    base_url="http://localhost:11434"),
             verbose=True,
-            tools=[KubectlTool()]
+            # tools=[KubectlTool()]
         )
 
     @agent
@@ -87,9 +98,10 @@ class KubernetesCrew:
             role="Kubernetes Security Expert",
             goal="Ensure security best practices and compliance.",
             backstory="You review Kubernetes YAML files, secrets, RBAC policies, and security configurations.",
-            llm=self.llm_config,
+            llm=LLM(model=self.common_model,
+                    base_url="http://localhost:11434"),
             verbose=True,
-            tools=[]
+            # tools=[]
         )
 
     @agent
@@ -98,9 +110,10 @@ class KubernetesCrew:
             role="Kubernetes Developer",
             goal="Assist in application deployment within Kubernetes.",
             backstory="You generate Kubernetes YAML manifests for deployments, services, and configurations.",
-            llm=self.llm_config,
+            llm=LLM(model=self.common_model,
+                    base_url="http://localhost:11434"),
             verbose=True,
-            tools=[KubectlTool(), YAMLValidatorTool()]
+            # tools=[KubectlTool(), YAMLValidatorTool()]
         )
 
     # --- Define Tasks ---
@@ -109,7 +122,8 @@ class KubernetesCrew:
         return Task(
             description="Classify the user's Kubernetes request and determine which agents should handle it.",
             agent=self.classifier_agent(),
-            expected_output="A JSON array of relevant agents (e.g., ['DevAgent', 'SecAgent'])."
+            expected_output="A JSON array of relevant agents (e.g., ['DevAgent', 'SecAgent']).",
+            human_input=True
         )
 
     @task
@@ -150,7 +164,7 @@ class KubernetesCrew:
         """Creates the Kubernetes crew."""
         return Crew(
             agents=[
-                self.classifier_agent(),
+
                 self.dev_agent(),
                 self.sec_agent(),
                 self.ops_agent(),
@@ -163,13 +177,18 @@ class KubernetesCrew:
                 self.ops_task(),
                 self.admin_task()
             ],
-            process=Process.sequential,  # Tasks are executed sequentially
+            # process=Process.sequential,  # Tasks are executed sequentially
+            process=Process.hierarchical,
+            manager_agent=self.classifier_agent(),
+            memory=True,
             verbose=True
         )
+
 
 # --- Main Execution ---
 if __name__ == "__main__":
     # Initialize the crew
+    print("Starting:")
     kubernetes_crew = KubernetesCrew().crew()
 
     # Run the crew with a user input
